@@ -124,7 +124,7 @@ func TestCIStep_PollReadsThePROnce(t *testing.T) {
 	snapshots, otherPRViews := 0, 0
 	for _, line := range strings.Split(string(data), "\n") {
 		switch {
-		case strings.Contains(line, "pr view") && strings.Contains(line, "--json state,mergeable,headRefOid"):
+		case strings.Contains(line, "pr view") && strings.Contains(line, "--json state,mergeable,mergeStateStatus,headRefOid"):
 			snapshots++
 		case strings.Contains(line, "pr view") && (strings.Contains(line, "--json state") ||
 			strings.Contains(line, "--json mergeable") || strings.Contains(line, "--json headRefOid")):

@@ -228,7 +228,7 @@ func TestGetPRPollSnapshotIsOneRequest(t *testing.T) {
 	t.Parallel()
 
 	f := &sequenceFactory{seq: []githubTestResponse{
-		{stdout: `{"state":"OPEN","mergeable":"CONFLICTING","headRefOid":"deadbeef"}` + "\n"},
+		{stdout: `{"state":"OPEN","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","headRefOid":"deadbeef"}` + "\n"},
 	}}
 	var waits []time.Duration
 	h := newRetryHost(f, &waits)
@@ -245,9 +245,30 @@ func TestGetPRPollSnapshotIsOneRequest(t *testing.T) {
 	if f.count() != 1 {
 		t.Fatalf("gh ran %d times, want exactly 1", f.count())
 	}
-	const wantCmd = "gh pr view 123 --repo test/repo --json state,mergeable,headRefOid"
+	const wantCmd = "gh pr view 123 --repo test/repo --json state,mergeable,mergeStateStatus,headRefOid"
 	if f.calls[0] != wantCmd {
 		t.Fatalf("command = %q, want %q", f.calls[0], wantCmd)
+	}
+}
+
+// A conflict-free PR that GitHub reports BEHIND its base is refused by a base
+// requiring up-to-date branches, so the single poll read must surface it as
+// BEHIND just as GetMergeableState does; "MERGEABLE" alone would hide it.
+func TestGetPRPollSnapshotReportsBehind(t *testing.T) {
+	t.Parallel()
+
+	f := &sequenceFactory{seq: []githubTestResponse{
+		{stdout: `{"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BEHIND","headRefOid":"deadbeef"}` + "\n"},
+	}}
+	var waits []time.Duration
+	h := newRetryHost(f, &waits)
+
+	snap, err := h.GetPRPollSnapshot(context.Background(), &scm.PR{Number: "123"})
+	if err != nil {
+		t.Fatalf("GetPRPollSnapshot() error = %v", err)
+	}
+	if snap.Mergeable != scm.MergeableBehind {
+		t.Fatalf("Mergeable = %q, want %q", snap.Mergeable, scm.MergeableBehind)
 	}
 }
 

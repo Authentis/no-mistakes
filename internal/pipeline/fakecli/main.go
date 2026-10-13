@@ -1216,10 +1216,10 @@ func fakeGraphQLRepo(args []string) string {
 	return owner + "/" + name
 }
 
-const fakeGHSnapshotFields = "state,mergeable,headRefOid"
+const fakeGHSnapshotFields = "state,mergeable,mergeStateStatus,headRefOid"
 
 // fakeGHPollSnapshot answers the CI poll's single
-// `gh pr view --json state,mergeable,headRefOid` by asking this same fake for
+// `gh pr view --json state,mergeable,mergeStateStatus,headRefOid` by asking this same fake for
 // each field through the per-field handlers the older tests already shape, so
 // every ci-gh mode keeps its own state, mergeable, and head behavior. The
 // child runs are not logged: one snapshot is one `pr view` in FAKE_CLI_LOG.
@@ -1242,7 +1242,9 @@ func fakeGHPollSnapshot(args []string) bool {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	values := map[string]string{}
+	// mergeStateStatus has no per-field handler: a fake that wants the PR to
+	// read BEHIND folds it into its mergeable answer ("MERGEABLE BEHIND").
+	values := map[string]string{"mergeStateStatus": ""}
 	for _, field := range []string{"state", "mergeable", "headRefOid"} {
 		childArgs := append([]string{}, args...)
 		childArgs[fieldsAt] = field
