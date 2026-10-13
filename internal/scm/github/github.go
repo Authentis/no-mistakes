@@ -477,7 +477,7 @@ func (h *Host) GetPRBaseBranch(ctx context.Context, pr *scm.PR) (string, error) 
 	}
 	args := append([]string{"pr", "view", selector}, h.repoArgs()...)
 	args = append(args, "--json", "baseRefName", "--jq", ".baseRefName")
-	out, err := h.cmd(ctx, "gh", args...).Output()
+	out, _, err := h.runRead(ctx, false, args...)
 	if err != nil {
 		return "", fmt.Errorf("gh pr view base branch: %w", err)
 	}
@@ -1118,7 +1118,7 @@ func (h *Host) PreRunFailures(ctx context.Context, checks []scm.Check) ([]bool, 
 func (h *Host) runJobs(ctx context.Context, runID string) (jobs []githubRunJob, present bool, err error) {
 	viewArgs := append([]string{"run", "view", runID}, h.repoArgs()...)
 	viewArgs = append(viewArgs, "--json", "jobs")
-	out, err := h.cmd(ctx, "gh", viewArgs...).Output()
+	out, _, err := h.runRead(ctx, false, viewArgs...)
 	if err != nil {
 		return nil, false, fmt.Errorf("gh run view %s: %w", runID, err)
 	}
@@ -1531,9 +1531,9 @@ func (h *Host) GetReviewComments(ctx context.Context, pr *scm.PR) ([]scm.ReviewC
 		if cursor != "" {
 			args = append(args, "-F", "cursor="+cursor)
 		}
-		out, commandErr := h.cmd(ctx, "gh", args...).CombinedOutput()
+		out, detail, commandErr := h.runRead(ctx, true, args...)
 		if commandErr != nil {
-			return nil, fmt.Errorf("gh api PR review comments: %s: %w", strings.TrimSpace(string(out)), commandErr)
+			return nil, fmt.Errorf("gh api PR review comments: %s: %w", detail, commandErr)
 		}
 		var response struct {
 			Data struct {

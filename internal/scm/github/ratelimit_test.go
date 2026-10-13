@@ -301,3 +301,69 @@ func TestGetChecksUsesPolledHeadWithoutReReadingThePR(t *testing.T) {
 		t.Fatalf("pr.HeadSHA = %q, want the polled head", pr.HeadSHA)
 	}
 }
+
+func TestGetPRBaseBranchRetriesSecondaryRateLimit(t *testing.T) {
+	t.Parallel()
+
+	f := &sequenceFactory{seq: []githubTestResponse{
+		{stderr: secondaryLimitStderr, code: 1},
+		{stdout: "release\n"},
+	}}
+	var waits []time.Duration
+	h := newRetryHost(f, &waits)
+
+	base, err := h.GetPRBaseBranch(context.Background(), &scm.PR{Number: "7"})
+	if err != nil {
+		t.Fatalf("GetPRBaseBranch() error = %v, want the retry to recover", err)
+	}
+	if base != "release" {
+		t.Fatalf("GetPRBaseBranch() = %q, want release", base)
+	}
+	if f.count() != 2 || len(waits) != 1 {
+		t.Fatalf("gh ran %d times with %d waits, want 2 and 1", f.count(), len(waits))
+	}
+}
+
+func TestRunJobsRetriesSecondaryRateLimit(t *testing.T) {
+	t.Parallel()
+
+	f := &sequenceFactory{seq: []githubTestResponse{
+		{stderr: secondaryLimitStderr, code: 1},
+		{stdout: `{"jobs":[]}`},
+	}}
+	var waits []time.Duration
+	h := newRetryHost(f, &waits)
+
+	jobs, present, err := h.runJobs(context.Background(), "101")
+	if err != nil {
+		t.Fatalf("runJobs() error = %v, want the retry to recover", err)
+	}
+	if !present || len(jobs) != 0 {
+		t.Fatalf("runJobs() = (%v, %v), want an explicitly empty job list", jobs, present)
+	}
+	if f.count() != 2 || len(waits) != 1 {
+		t.Fatalf("gh ran %d times with %d waits, want 2 and 1", f.count(), len(waits))
+	}
+}
+
+func TestGetReviewCommentsRetriesSecondaryRateLimit(t *testing.T) {
+	t.Parallel()
+
+	f := &sequenceFactory{seq: []githubTestResponse{
+		{stderr: secondaryLimitStderr, code: 1},
+		{stdout: `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}}`},
+	}}
+	var waits []time.Duration
+	h := newRetryHost(f, &waits)
+
+	comments, err := h.GetReviewComments(context.Background(), &scm.PR{Number: "7"})
+	if err != nil {
+		t.Fatalf("GetReviewComments() error = %v, want the retry to recover", err)
+	}
+	if len(comments) != 0 {
+		t.Fatalf("comments = %+v, want none", comments)
+	}
+	if f.count() != 2 || len(waits) != 1 {
+		t.Fatalf("gh ran %d times with %d waits, want 2 and 1", f.count(), len(waits))
+	}
+}
