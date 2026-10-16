@@ -54,12 +54,38 @@ func objectCount(t *testing.T, dir string) string {
 // the pipeline fix and added more), so returning custody at the repair loses
 // nothing while the preserved commits stay anchored.
 func TestRecoverLocalOnlyHeadCarryingPreservedWorkReturnsCustodyAtLocalHead(t *testing.T) {
-	t.Parallel()
+	for _, availability := range []struct {
+		name         string
+		localHasBoth bool
+		gateHasBoth  bool
+	}{
+		{name: "split objects"},
+		{name: "local has both", localHasBoth: true},
+		{name: "gate has both", gateHasBoth: true},
+		{name: "both have both", localHasBoth: true, gateHasBoth: true},
+	} {
+		t.Run(availability.name, func(t *testing.T) {
+			t.Parallel()
+			checkRecoverHeadCarryingPreservedWork(t, availability.localHasBoth, availability.gateHasBoth)
+		})
+	}
+}
 
+func checkRecoverHeadCarryingPreservedWork(t *testing.T, localHasBoth, gateHasBoth bool) {
+	t.Helper()
 	f := repairFixture(t)
 	mustWrite(t, filepath.Join(f.local, "fix.txt"), "pipeline fix 2\n")
 	mustRun(t, f.local, "add", "fix.txt")
 	repair := f.commitRepair("extra.txt", "repair only\n")
+	if localHasBoth {
+		mustRun(t, f.local, "fetch", f.gate, f.anchorRef())
+	}
+	if gateHasBoth {
+		mustRun(t, f.gate, "fetch", f.local, "refs/heads/feature/recover")
+	}
+	if objectExists(f.ctx, f.local, f.preserved) != localHasBoth || objectExists(f.ctx, f.gate, repair) != gateHasBoth {
+		t.Fatal("fixture has unexpected object availability")
+	}
 
 	localRefs, gateRefs := refSnapshot(t, f.local), refSnapshot(t, f.gate)
 	localObjects, gateObjects := objectCount(t, f.local), objectCount(t, f.gate)

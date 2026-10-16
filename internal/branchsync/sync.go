@@ -2512,9 +2512,11 @@ func (s *Service) recoverySourceAvailable(ctx context.Context, state *State, run
 		}
 	}
 
-	ordinaryAvailable := localEligible
+	ordinaryAvailable := localEligible || (gateAvailable && objectExists(ctx, gateDir, preserved) && state.Local.Clean &&
+		localCarriesPreservedWork(ctx, s.workDir(), local, preserved))
 	if !ordinaryAvailable && gateAvailable && objectExists(ctx, gateDir, preserved) && state.Local.Clean && objectExists(ctx, gateDir, local) {
-		ordinaryAvailable = isAncestor(ctx, gateDir, local, preserved) || preservedContainsLocalWork(ctx, gateDir, local, preserved)
+		ordinaryAvailable = isAncestor(ctx, gateDir, local, preserved) || preservedContainsLocalWork(ctx, gateDir, local, preserved) ||
+			localCarriesPreservedWork(ctx, gateDir, local, preserved)
 	}
 	if !ordinaryAvailable && gateAvailable && state.Local.Clean && objectExists(ctx, gateDir, preserved) && objectExists(ctx, s.workDir(), local) &&
 		(!objectExists(ctx, gateDir, local) || !objectExists(ctx, s.workDir(), preserved)) {
