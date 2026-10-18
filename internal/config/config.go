@@ -3416,22 +3416,29 @@ func (e *ProtectedPathsBranchLocalError) Unwrap() error { return ErrProtectedPat
 //
 // The comparison is entry-wise, not list-wise: an entry the trusted config
 // already carries is honored, so a branch that merely re-declares the
-// maintainer's own rules (or a subset of them) is not refused. Only entries
-// that would be dropped are reported. An empty or absent pushed list is always
+// maintainer's own rules (or a subset of them) is not refused. An entry the
+// branch inherited from its merge base with the trusted commit (inherited) was
+// not declared by the branch either, so one the default branch has since
+// removed is not refused. Only entries the branch itself added and that would
+// be dropped are reported. A nil inherited config (no readable merge base)
+// treats every entry as branch-added. An empty or absent pushed list is always
 // fine - a branch may omit the setting without consequence.
-func CheckProtectedPathsBranchLocal(pushed, trusted *RepoConfig, branch string) error {
+func CheckProtectedPathsBranchLocal(pushed, inherited, trusted *RepoConfig, branch string) error {
 	if pushed == nil || len(pushed.ProtectedPaths) == 0 {
 		return nil
 	}
-	trustedSet := make(map[string]struct{})
-	if trusted != nil {
-		for _, p := range trusted.ProtectedPaths {
-			trustedSet[p] = struct{}{}
+	known := make(map[string]struct{})
+	for _, cfg := range []*RepoConfig{inherited, trusted} {
+		if cfg == nil {
+			continue
+		}
+		for _, p := range cfg.ProtectedPaths {
+			known[p] = struct{}{}
 		}
 	}
 	var dropped []string
 	for _, p := range pushed.ProtectedPaths {
-		if _, ok := trustedSet[p]; !ok {
+		if _, ok := known[p]; !ok {
 			dropped = append(dropped, p)
 		}
 	}

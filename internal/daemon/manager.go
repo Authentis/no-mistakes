@@ -308,7 +308,7 @@ func (m *RunManager) loadRecoveredConfig(ctx context.Context, run *db.Run, repo 
 	// SECURITY: same fail-closed refusal as startRun. A recovered run must not
 	// resume into auto-fix of paths its own branch asked to protect but the
 	// trusted config does not carry.
-	if err := config.CheckProtectedPathsBranchLocal(repoCfg, trustedRepoCfg, run.Branch); err != nil {
+	if err := config.CheckProtectedPathsBranchLocal(repoCfg, loadMergeBaseRepoConfig(ctx, workDir, trustedSHA, run.ID), trustedRepoCfg, run.Branch); err != nil {
 		return nil, err
 	}
 	cfg := config.MergeForRemote(globalCfg, effectiveRepoCfg, repo.UpstreamURL)
@@ -888,6 +888,22 @@ func loadTrustedRepoConfig(ctx context.Context, wtDir, trustedSHA, runID string)
 		return nil
 	}
 	return trusted
+}
+
+// loadMergeBaseRepoConfig reads .no-mistakes.yaml at the merge base of the
+// worktree HEAD and the trusted commit: the default-branch copy the branch
+// inherited. Any failure returns nil, so every pushed protected_paths entry is
+// then treated as branch-added.
+func loadMergeBaseRepoConfig(ctx context.Context, wtDir, trustedSHA, runID string) *config.RepoConfig {
+	if trustedSHA == "" {
+		return nil
+	}
+	base, err := git.Run(ctx, wtDir, "merge-base", "HEAD", trustedSHA)
+	if err != nil {
+		slog.Debug("merge-base repo config: no merge base with trusted commit", "run_id", runID, "sha", trustedSHA, "error", err)
+		return nil
+	}
+	return loadTrustedRepoConfig(ctx, wtDir, base, runID)
 }
 
 // assertGateTrustedConfigReadable fails a run LOUD when the trusted
@@ -1743,7 +1759,7 @@ func (m *RunManager) startRunWithIntentSourceLocked(ctx context.Context, repo *d
 	// declaration is inert. Refuse the run before any fix commit is created
 	// rather than fail open and let auto-fix mutate the paths the branch asked
 	// to protect (see config.CheckProtectedPathsBranchLocal).
-	if err := config.CheckProtectedPathsBranchLocal(repoCfg, trustedRepoCfg, branch); err != nil {
+	if err := config.CheckProtectedPathsBranchLocal(repoCfg, loadMergeBaseRepoConfig(ctx, wtDir, trustedSHA, run.ID), trustedRepoCfg, branch); err != nil {
 		m.db.UpdateRunError(run.ID, err.Error())
 		trackStartFailure("branch_local_protected_paths")
 		return "", err

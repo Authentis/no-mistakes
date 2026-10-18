@@ -68,7 +68,7 @@ func TestCheckProtectedPathsBranchLocal_RefusesSilentlyDroppedRules(t *testing.T
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := CheckProtectedPathsBranchLocal(tc.pushed, tc.trusted, "feature/x")
+			err := CheckProtectedPathsBranchLocal(tc.pushed, nil, tc.trusted, "feature/x")
 			if !tc.wantErr {
 				if err != nil {
 					t.Fatalf("unexpected refusal: %v", err)
@@ -102,7 +102,7 @@ func TestCheckProtectedPathsBranchLocal_ReportsOnlyDroppedEntries(t *testing.T) 
 	t.Parallel()
 	trusted := mustRepoConfig(t, "protected_paths: ['*.lock']\n")
 	pushed := mustRepoConfig(t, "protected_paths: ['*.lock', 'tests/**', 'docs/**']\n")
-	err := CheckProtectedPathsBranchLocal(pushed, trusted, "feature/x")
+	err := CheckProtectedPathsBranchLocal(pushed, nil, trusted, "feature/x")
 	if err == nil {
 		t.Fatal("expected refusal, got nil")
 	}
@@ -135,7 +135,7 @@ func TestProtectedPaths_TrustedOnlyPolicyWithBranchAdditions(t *testing.T) {
 			t.Errorf("allow_repo_commands=%v: effective protected_paths = %q, want trusted-only [*.lock]", allow, got)
 		}
 	}
-	if err := CheckProtectedPathsBranchLocal(pushed, trusted, "feature"); !errors.Is(err, ErrProtectedPathsBranchLocal) {
+	if err := CheckProtectedPathsBranchLocal(pushed, nil, trusted, "feature"); !errors.Is(err, ErrProtectedPathsBranchLocal) {
 		t.Errorf("expected refusal for the dropped entry, got %v", err)
 	}
 }
@@ -147,4 +147,26 @@ func mustRepoConfig(t *testing.T, yaml string) *RepoConfig {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// TestCheckProtectedPathsBranchLocal_InheritedEntriesAreNotBranchLocal covers
+// stale inheritance: an entry the branch carries only because its merge base
+// with the trusted commit carried it was never declared by the branch, so the
+// default branch removing it later must not refuse the branch. An entry the
+// branch added on top is still refused and is the only one named.
+func TestCheckProtectedPathsBranchLocal_InheritedEntriesAreNotBranchLocal(t *testing.T) {
+	t.Parallel()
+	inherited := mustRepoConfig(t, "protected_paths: ['*.lock']\n")
+	trusted := mustRepoConfig(t, "")
+	if err := CheckProtectedPathsBranchLocal(mustRepoConfig(t, "protected_paths: ['*.lock']\n"), inherited, trusted, "feature/x"); err != nil {
+		t.Fatalf("inherited entry refused: %v", err)
+	}
+	err := CheckProtectedPathsBranchLocal(mustRepoConfig(t, "protected_paths: ['*.lock', 'tests/**']\n"), inherited, trusted, "feature/x")
+	var pple *ProtectedPathsBranchLocalError
+	if !errors.As(err, &pple) {
+		t.Fatalf("branch-added entry not refused: %v", err)
+	}
+	if !reflect.DeepEqual(pple.Entries, []string{"tests/**"}) {
+		t.Errorf("Entries = %q, want only the branch-added [tests/**]", pple.Entries)
+	}
 }

@@ -505,6 +505,47 @@ func TestProtectedPathsBranchLocalRefusedBeforeRun(t *testing.T) {
 	}
 }
 
+// TestProtectedPathsBranchLocalStaleInheritanceStarts covers a branch cut while
+// the default branch carried protected_paths that the default branch has since
+// removed: the branch only inherited the entry, so its push must start a run
+// instead of being refused as a branch-local declaration.
+func TestProtectedPathsBranchLocalStaleInheritanceStarts(t *testing.T) {
+	p, database := startTestDaemonWithSteps(t, func() []pipeline.Step {
+		return []pipeline.Step{&steps.PushStep{}}
+	})
+	repo, _ := setupTestGitRepo(t, p, database, "protected-stale-inheritance")
+	configFile := filepath.Join(repo.WorkingPath, ".no-mistakes.yaml")
+	base := "auto_fix:\n  lint: 0\n  test: 0\n  review: 0\n"
+	if err := os.WriteFile(configFile, []byte(base+"protected_paths:\n  - tests/**\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, repo.WorkingPath, "commit", "-am", "protect tests on main")
+	gitCmd(t, repo.WorkingPath, "push", "gate", "HEAD:refs/heads/main")
+	featureHead := gitOutput(t, repo.WorkingPath, "rev-parse", "HEAD")
+	gitCmd(t, repo.WorkingPath, "push", "gate", "HEAD:refs/heads/feature")
+	if err := os.WriteFile(configFile, []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, repo.WorkingPath, "commit", "-am", "drop protected paths on main")
+	gitCmd(t, repo.WorkingPath, "push", "gate", "HEAD:refs/heads/main")
+
+	client, err := ipc.Dial(p.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	var result ipc.PushReceivedResult
+	if err := client.Call(ipc.MethodPushReceived, &ipc.PushReceivedParams{
+		Gate: p.RepoDir(repo.ID), Ref: "refs/heads/feature",
+		Old: strings.Repeat("0", 40), New: featureHead,
+	}, &result); err != nil {
+		t.Fatalf("branch that only inherited protected_paths was refused: %v", err)
+	}
+	if result.RunID == "" {
+		t.Fatal("no run started for the branch")
+	}
+}
+
 // TestProtectedPathsBranchLocalRecoveredRunTerminalizes covers the #1043
 // Greptile P1 on current main: a parked run whose branch declares
 // protected_paths the trusted default branch lacks must not stay marked running
