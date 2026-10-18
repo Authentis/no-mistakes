@@ -629,7 +629,20 @@ func TestProtectedPathsBranchLocalRecoveredRunTerminalizes(t *testing.T) {
 	if err := os.WriteFile(unfinished, []byte("uncommitted fix\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.SetRunAwaitingAgent(run.ID); err != nil {
+	// The run is parked at a real gate: a completed step before it and the
+	// gate's step awaiting approval.
+	doneStep, err := database.InsertStepResult(run.ID, types.StepRebase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteStep(doneStep.ID, 0, 10, ""); err != nil {
+		t.Fatal(err)
+	}
+	gateStep, err := database.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ParkStepForApproval(run.ID, gateStep.ID, types.StepStatusAwaitingApproval, 1, 20, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -656,6 +669,23 @@ func TestProtectedPathsBranchLocalRecoveredRunTerminalizes(t *testing.T) {
 	}
 	if got.AwaitingAgentSince != nil {
 		t.Fatalf("failed run still reports awaiting agent since %d", *got.AwaitingAgentSince)
+	}
+	// A failed run must not still show a gate that no response can reach.
+	runSteps, err := database.GetStepsByRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range runSteps {
+		switch s.ID {
+		case doneStep.ID:
+			if s.Status != types.StepStatusCompleted {
+				t.Fatalf("completed step changed to %q", s.Status)
+			}
+		case gateStep.ID:
+			if s.Status != types.StepStatusFailed || s.Error == nil || !strings.Contains(*s.Error, "tests/**") {
+				t.Fatalf("parked gate step = %q (error %v), want failed with the refusal", s.Status, s.Error)
+			}
+		}
 	}
 	reapAll := worktreeReapPolicy{Retention: time.Nanosecond}
 	future := time.Now().Add(365 * 24 * time.Hour)

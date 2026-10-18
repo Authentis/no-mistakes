@@ -166,6 +166,12 @@ func (m *RunManager) recoverableParkedRuns(ctx context.Context) []recoveredRunPl
 					// The run never resumes, so the gate's park ends here.
 					dbErr = m.db.CompleteRunAwaitingAgent(run.ID, time.Since(time.Unix(*run.AwaitingAgentSince, 0)).Milliseconds())
 				}
+				if dbErr == nil {
+					// Fail the parked gate's step too, as the crash sweep does, so
+					// status shows the failed outcome instead of a gate no response
+					// can reach.
+					dbErr = m.failActiveSteps(run.ID, reason)
+				}
 				if dbErr != nil {
 					slog.Error("failed to terminalize run refused for branch-local protected_paths", "run_id", run.ID, "error", dbErr)
 				} else {
@@ -179,6 +185,28 @@ func (m *RunManager) recoverableParkedRuns(ctx context.Context) []recoveredRunPl
 		plans = append(plans, *plan)
 	}
 	return plans
+}
+
+// failActiveSteps fails a terminalized run's running, awaiting_approval,
+// fixing, and fix_review steps with reason.
+func (m *RunManager) failActiveSteps(runID, reason string) error {
+	stepResults, err := m.db.GetStepsByRun(runID)
+	if err != nil {
+		return err
+	}
+	for _, s := range stepResults {
+		switch s.Status {
+		case types.StepStatusRunning, types.StepStatusAwaitingApproval, types.StepStatusFixing, types.StepStatusFixReview:
+			var durationMS int64
+			if s.DurationMS != nil {
+				durationMS = *s.DurationMS
+			}
+			if err := m.db.FailStep(s.ID, reason, durationMS); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (m *RunManager) prepareRecoveredRun(ctx context.Context, run *db.Run) (*recoveredRunPlan, error) {
