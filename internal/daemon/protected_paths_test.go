@@ -657,9 +657,22 @@ func TestProtectedPathsBranchLocalRecoveredRunTerminalizes(t *testing.T) {
 	if got.AwaitingAgentSince != nil {
 		t.Fatalf("failed run still reports awaiting agent since %d", *got.AwaitingAgentSince)
 	}
-	cleanupOrphanWorktrees(database, p, nil)
+	reapAll := worktreeReapPolicy{Retention: time.Nanosecond}
+	future := time.Now().Add(365 * 24 * time.Hour)
+	reapWorktrees(database, p, reapAll, future)
 	if data, err := os.ReadFile(unfinished); err != nil || string(data) != "uncommitted fix\n" {
-		t.Fatalf("cleanup deleted the refused run's uncommitted work: %v", err)
+		t.Fatalf("worktree reaper deleted the refused run's uncommitted work: %v", err)
+	}
+	refusal, _, ok := strings.Cut(*got.Error, fmt.Sprintf(recoveryRefusalKeptWorktreeFormat, managed))
+	if !ok {
+		t.Fatalf("refusal %q does not end with the kept-worktree notice", *got.Error)
+	}
+	if err := database.UpdateRunError(run.ID, refusal); err != nil {
+		t.Fatal(err)
+	}
+	reapWorktrees(database, p, reapAll, future)
+	if _, err := os.Stat(managed); !os.IsNotExist(err) {
+		t.Fatalf("control: the same reaper policy kept a refused run's worktree without the kept-worktree notice (stat err %v)", err)
 	}
 }
 
