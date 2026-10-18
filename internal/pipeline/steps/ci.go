@@ -950,6 +950,23 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (outcome *pipeline.StepOutc
 					// instead, which records the checks verdict and releases the
 					// run's worktree and lane.
 					if releaseAfterChecksPass {
+						// GetChecks skipped its closing head re-read because
+						// it was handed the poll's head, and there is no next
+						// poll after this one to notice a push that landed
+						// during discovery, so confirm the head before ending.
+						if snapshotted && snapshot.HeadSHA != "" {
+							current, confirmErr := host.(scm.PRPollSnapshotter).GetPRPollSnapshot(ctx, pr)
+							if confirmErr != nil || current.HeadSHA != snapshot.HeadSHA {
+								clearCIMonitorReady(sctx)
+								lastMonitorLog = ""
+								if confirmErr != nil {
+									sctx.Log(fmt.Sprintf("warning: could not confirm the PR head before releasing: %v", confirmErr))
+								} else {
+									sctx.Log(fmt.Sprintf("PR head changed during check discovery from %s to %s, polling again", shortSHA(snapshot.HeadSHA), shortSHA(current.HeadSHA)))
+								}
+								break
+							}
+						}
 						completeMsg := ciChecksPassedCompleteMsg
 						if declaredNoCI {
 							completeMsg = ciNoChecksPassedCompleteMsg

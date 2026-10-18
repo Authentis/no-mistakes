@@ -435,6 +435,12 @@ func fakeGitRemoteErrorHandler(args []string) {
 }
 
 func fakePRHeadSHA() string {
+	// FAKE_CLI_PR_HEAD_SEQ_PATH answers successive head reads from its
+	// lines in order, repeating the last, so a test can move the head
+	// between two reads of the same poll.
+	if seqPath := os.Getenv("FAKE_CLI_PR_HEAD_SEQ_PATH"); seqPath != "" {
+		return nextFakeSequenceEntry(seqPath)
+	}
 	configured := os.Getenv("FAKE_CLI_PR_HEAD_SHA")
 	if os.Getenv("FAKE_CLI_HEAD_FROM_WORKTREE") != "1" || configured != "deadbeef" {
 		return configured
@@ -450,6 +456,30 @@ func fakePRHeadSHA() string {
 		os.Exit(1)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func nextFakeSequenceEntry(seqPath string) string {
+	data, err := os.ReadFile(seqPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	entries := strings.Split(strings.TrimSpace(string(data)), "\n")
+	indexPath := seqPath + ".index"
+	index := 0
+	if raw, err := os.ReadFile(indexPath); err == nil {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
+			index = parsed
+		}
+	}
+	if index >= len(entries) {
+		index = len(entries) - 1
+	}
+	if err := os.WriteFile(indexPath, []byte(strconv.Itoa(index+1)), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	return strings.TrimSpace(entries[index])
 }
 
 func fakeGitForward(args []string, realGit string) {
