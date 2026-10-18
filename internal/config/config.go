@@ -804,7 +804,6 @@ type CI struct {
 	// describe.
 	Instructions string
 
-
 	// ReleaseAfterChecksPass makes the CI step finish the run at its checks
 	// verdict instead of monitoring the pull request until it is merged or
 	// closed.
